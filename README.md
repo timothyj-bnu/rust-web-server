@@ -1,3 +1,3 @@
-# Rest Web Server
+# Rust Web Server
 
 This is a rust web server for me exploring.
