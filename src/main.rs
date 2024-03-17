@@ -6,17 +6,18 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
 
+use std::error::Error;
+use std::num::ParseIntError;
+
 mod http;
 
 use http::request::Request;
 
-fn main() -> Result<(), IoError> {
+fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
-        let test = json!({"test":"Test"});
-        let _ = serde_json::to_string(&test);
 
         // thread::sleep(Duration::from_millis(5000));
         let mut response_header: HashMap<String, String> = HashMap::new();
@@ -26,15 +27,17 @@ fn main() -> Result<(), IoError> {
         let request = match Request::parse(&mut stream) {
             Ok(request) => request,
             Err(err) => {
-                handle_parse_error(
+                match handle_parse_error(
                     &mut stream,
                     response_header,
                     json!({
                         "success": false,
                         "error": format!("{}", err)
                     }),
-                )?;
-                continue;
+                ) {
+                    Ok(_) => continue,
+                    Err(_) => continue,
+                }
             }
         };
         println!("{}", request.buffer_string);
@@ -61,7 +64,7 @@ fn handle_parse_error(
     stream: &mut TcpStream,
     header: HashMap<String, String>,
     body: Value,
-) -> Result<(), IoError> {
+) -> Result<(), Box<dyn Error>> {
     let response = format!(
         "HTTP/1.1 {} {}\r\n{}\r\n\r\n{}",
         400,
@@ -73,7 +76,6 @@ fn handle_parse_error(
             .join("\r\n"),
         body
     );
-    println!("{}", response);
     stream.write_all(response.as_bytes())?;
     Ok(())
 }
