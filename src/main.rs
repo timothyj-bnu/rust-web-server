@@ -1,17 +1,19 @@
 use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Error as IoError;
 use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
 
 use std::error::Error;
-use std::num::ParseIntError;
+use std::thread;
+use std::time::Duration;
 
 mod http;
 
 use http::request::Request;
+
+use crate::http::response::Response;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
@@ -20,9 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut stream = stream.unwrap();
 
         // thread::sleep(Duration::from_millis(5000));
-        let mut response_header: HashMap<String, String> = HashMap::new();
-        response_header.insert("Content-type".into(), "application/json".into());
-        response_header.insert("Server".into(), "localhost".into());
+        let response_header: HashMap<String, String> = HashMap::new();
 
         let request = match Request::parse(&mut stream) {
             Ok(request) => request,
@@ -41,21 +41,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
         println!("{}", request.buffer_string);
-        let response = format!(
-            "HTTP/1.1 {} {}\r\n{}\r\n\r\n{}",
-            200,
-            "OK",
-            response_header
-                .iter()
-                .map(|(key, value)| format!("{}: {}", key, value))
-                .collect::<Vec<_>>()
-                .join("\r\n"),
-            json!({"success": true})
-        );
+        let response = Response::new(200, "OK".into(), response_header, json!({"success":true, "text":"❤️"}));
 
-        println!("{}\n=====", response);
-
-        stream.write_all(response.as_bytes()).unwrap();
+        stream
+            .write_all(response.as_vec_bytes().as_slice())
+            .unwrap();
     }
     Ok(())
 }
