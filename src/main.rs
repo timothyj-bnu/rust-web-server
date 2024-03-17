@@ -1,82 +1,79 @@
+use serde_json::json;
+use serde_json::Value;
 use std::collections::HashMap;
-use std::io::BufRead;
-use std::io::BufReader;
+use std::io::Error as IoError;
+use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
-use std::str;
-use std::thread;
-use std::time::Duration;
 
-fn main() {
+mod http;
+
+use http::request::Request;
+
+fn main() -> Result<(), IoError> {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
     for stream in listener.incoming() {
-        let stream = stream.unwrap();
+        let mut stream = stream.unwrap();
+        let test = json!({"test":"Test"});
+        let _ = serde_json::to_string(&test);
 
-        handle_connection(stream);
-        thread::sleep(Duration::from_millis(5000));
+        // thread::sleep(Duration::from_millis(5000));
+        let mut response_header: HashMap<String, String> = HashMap::new();
+        response_header.insert("Content-type".into(), "application/json".into());
+        response_header.insert("Server".into(), "localhost".into());
+
+        let request = match Request::parse(&mut stream) {
+            Ok(request) => request,
+            Err(err) => {
+                handle_parse_error(
+                    &mut stream,
+                    response_header,
+                    json!({
+                        "success": false,
+                        "error": format!("{}", err)
+                    }),
+                )?;
+                continue;
+            }
+        };
+        println!("{}", request.buffer_string);
+        let response = format!(
+            "HTTP/1.1 {} {}\r\n{}\r\n\r\n{}",
+            200,
+            "OK",
+            response_header
+                .iter()
+                .map(|(key, value)| format!("{}: {}", key, value))
+                .collect::<Vec<_>>()
+                .join("\r\n"),
+            json!({"success": true})
+        );
+
+        println!("{}\n=====", response);
+
+        stream.write_all(response.as_bytes()).unwrap();
     }
+    Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) {
-    let mut reader = BufReader::new(&mut stream);
-    let buffer: Vec<u8> = match reader.fill_buf() {
-        Ok(buf) => buf.to_vec(),
-        Err(err) => {
-            println!("Error reading buffer: {}", err);
-            return;
-        }
-    };
-
-    let mut headers = [httparse::EMPTY_HEADER; 16];
-    let mut req = httparse::Request::new(&mut headers);
-
-    println!("{:?}", buffer);
-
-    let res = match req.parse(&buffer).unwrap() {
-        httparse::Status::Complete(amt) => amt,
-        httparse::Status::Partial => {
-            return;
-        }
-    };
-
-    println!("{:?}", res);
-
-    let string = match str::from_utf8(&buffer) {
-        Ok(string) => string,
-        Err(e) => {
-            println!("Error reading UTF-8 sequence: {}", e);
-            return;
-        }
-    };
-
-    println!("Request:\n{}", string);
-
-    let method = match req.method.ok_or("Method not found") {
-        Ok(method) => method,
-        Err(_) => {
-            return;
-        }
-    };
-    let uri = req.path.ok_or("URI not found").unwrap().to_string();
-    let version = req.version.ok_or("Version not found").unwrap().to_string();
-
-    let mut headers_map = HashMap::new();
-    for header in req.headers.iter() {
-        let name = header.name.to_string();
-        let value = std::str::from_utf8(header.value).unwrap().to_string();
-        headers_map.insert(name, value);
-    }
-
-    let body = if res < buffer.len() {
-        Some(String::from_utf8(buffer[res..].to_vec()))
-    } else {
-        None
-    };
-
-
-    println!("{}\n{}\n{}\n{:#?}\n{}", method, uri, version, headers_map, body.unwrap().unwrap());
-
-
-
+fn handle_parse_error(
+    stream: &mut TcpStream,
+    header: HashMap<String, String>,
+    body: Value,
+) -> Result<(), IoError> {
+    let response = format!(
+        "HTTP/1.1 {} {}\r\n{}\r\n\r\n{}",
+        400,
+        "Bad Request",
+        header
+            .iter()
+            .map(|(key, value)| format!("{}: {}", key, value))
+            .collect::<Vec<_>>()
+            .join("\r\n"),
+        body
+    );
+    println!("{}", response);
+    stream.write_all(response.as_bytes())?;
+    Ok(())
 }
