@@ -10,42 +10,52 @@ use std::thread;
 use std::time::Duration;
 
 mod http;
+mod multithread;
 
 use http::request::Request;
-
-use crate::http::response::Response;
+use http::response::Response;
+use multithread::thread_pool::ThreadPool;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+    let pool = ThreadPool::new(4);
 
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
 
-        // thread::sleep(Duration::from_millis(5000));
-        let response_header: HashMap<String, String> = HashMap::new();
+        pool.execute(move || {
+            let response_header: HashMap<String, String> = HashMap::new();
 
-        let request = match Request::parse(&mut stream) {
-            Ok(request) => request,
-            Err(err) => {
-                match handle_parse_error(
-                    &mut stream,
-                    response_header,
-                    json!({
-                        "success": false,
-                        "error": format!("{}", err)
-                    }),
-                ) {
-                    Ok(_) => continue,
-                    Err(_) => continue,
+            let request = match Request::parse(&mut stream) {
+                Ok(request) => request,
+                Err(err) => {
+                    match handle_parse_error(
+                        &mut stream,
+                        response_header,
+                        json!({
+                            "success": false,
+                            "error": format!("{}", err)
+                        }),
+                    ) {
+                        Ok(_) => return,
+                        Err(_) => return,
+                    }
                 }
-            }
-        };
-        println!("{}", request.buffer_string);
-        let response = Response::new(200, "OK".into(), response_header, json!({"success":true, "text":"❤️"}));
+            };
+            println!("{}", request.buffer_string);
+            let response = Response::new(
+                200,
+                "OK".into(),
+                response_header,
+                json!({"success":true, "text":"❤️"}),
+            );
 
-        stream
-            .write_all(response.as_vec_bytes().as_slice())
-            .unwrap();
+            thread::sleep(Duration::from_millis(5000));
+
+            stream
+                .write_all(response.as_vec_bytes().as_slice())
+                .unwrap();
+        });
     }
     Ok(())
 }
