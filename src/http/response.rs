@@ -45,7 +45,7 @@ impl Response {
             self.body
         );
 
-        println!("{}", response_string);
+        // println!("{}", response_string);
 
         response_string.into_bytes()
     }
